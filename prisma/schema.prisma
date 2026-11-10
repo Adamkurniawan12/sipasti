@@ -1,0 +1,315 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum RoleName {
+  SUPER_ADMIN
+  ADMIN
+  VERIFIKATOR
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum WilayahLevel {
+  PROVINSI
+  KABUPATEN_KOTA
+  KECAMATAN
+}
+
+enum StatusValidasi {
+  MENUNGGU
+  DISETUJUI
+  DITOLAK
+  PERLU_PERBAIKAN
+}
+
+enum StatusPengajuan {
+  DRAFT
+  SUBMITTED
+  IN_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+}
+
+model User {
+  id            String      @id @default(uuid())
+  name          String
+  username      String      @unique
+  email         String      @unique
+  password      String
+  nip           String?     @unique
+  jabatan       String?
+  instansi      String?
+  phone         String?
+  avatar        String?
+  status        UserStatus  @default(ACTIVE)
+  roleId        String
+  role          Role        @relation(fields: [roleId], references: [id])
+  wilayahId     String?
+  wilayah       Wilayah?    @relation(fields: [wilayahId], references: [id])
+  
+  // Relations
+  hspwCreated        Hspw[]             @relation("HspwCreatedBy")
+  hspwVerified       Hspw[]             @relation("HspwVerifiedBy")
+  pengajuanSubmitted PengajuanData[]    @relation("PengajuanSubmittedBy")
+  validasiProcessed  ValidasiData[]     @relation("ValidasiVerifikator")
+  riwayatPerubahan   RiwayatPerubahan[]
+  notifications      Notification[]
+  activityLogs       ActivityLog[]
+
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  @@index([roleId])
+  @@index([email])
+  @@index([username])
+  @@map("users")
+}
+
+model Role {
+  id              String           @id @default(uuid())
+  name            RoleName         @unique
+  label           String
+  description     String?
+  users           User[]
+  rolePermissions RolePermission[]
+
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  @@map("roles")
+}
+
+model Permission {
+  id              String           @id @default(uuid())
+  name            String
+  code            String           @unique
+  module          String
+  description     String?
+  rolePermissions RolePermission[]
+
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String     @id @default(uuid())
+  roleId       String     @map("role_id")
+  permissionId String     @map("permission_id")
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model Wilayah {
+  id          String         @id @default(uuid())
+  kode        String         @unique
+  nama        String
+  level       WilayahLevel   @default(PROVINSI)
+  parentId    String?        @map("parent_id")
+  parent      Wilayah?       @relation("WilayahHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children    Wilayah[]      @relation("WilayahHierarchy")
+  status      Boolean        @default(true)
+  
+  users       User[]
+  hspwItems   Hspw[]
+  pengajuan   PengajuanData[]
+
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  @@index([kode])
+  @@index([nama])
+  @@index([parentId])
+  @@map("wilayah")
+}
+
+model KategoriData {
+  id          String   @id @default(uuid())
+  kode        String   @unique
+  nama        String
+  deskripsi   String?  @db.Text
+  urutan      Int      @default(0)
+  status      Boolean  @default(true)
+
+  hspwItems   Hspw[]
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([kode])
+  @@map("kategori_data")
+}
+
+model Hspw {
+  id               String          @id @default(uuid())
+  kode             String          @unique
+  namaItem         String          @map("nama_item")
+  spesifikasi      String?         @db.Text
+  satuan           String
+  hargaSatuan      Decimal         @map("harga_satuan") @db.Decimal(15, 2)
+  tahun            Int
+  statusValidasi   StatusValidasi  @default(MENUNGGU) @map("status_validasi")
+  catatanValidasi  String?         @map("catatan_validasi") @db.Text
+  
+  wilayahId        String          @map("wilayah_id")
+  wilayah          Wilayah         @relation(fields: [wilayahId], references: [id])
+
+  kategoriId       String          @map("kategori_id")
+  kategori         KategoriData    @relation(fields: [kategoriId], references: [id])
+
+  createdById      String          @map("created_by_id")
+  createdBy        User            @relation("HspwCreatedBy", fields: [createdById], references: [id])
+
+  verifiedById     String?         @map("verified_by_id")
+  verifiedBy       User?           @relation("HspwVerifiedBy", fields: [verifiedById], references: [id])
+  verifiedAt       DateTime?       @map("verified_at")
+
+  pengajuanId      String?         @map("pengajuan_id")
+  pengajuan        PengajuanData?  @relation(fields: [pengajuanId], references: [id], onDelete: SetNull)
+
+  validasiRecords  ValidasiData[]
+
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  @@index([kode])
+  @@index([namaItem])
+  @@index([tahun])
+  @@index([wilayahId])
+  @@index([kategoriId])
+  @@index([statusValidasi])
+  @@map("hspw")
+}
+
+model PengajuanData {
+  id              String          @id @default(uuid())
+  nomorPengajuan  String          @unique @map("nomor_pengajuan")
+  judul           String
+  deskripsi       String?         @db.Text
+  tahun           Int
+  status          StatusPengajuan @default(DRAFT)
+  catatan         String?         @db.Text
+  
+  wilayahId       String          @map("wilayah_id")
+  wilayah         Wilayah         @relation(fields: [wilayahId], references: [id])
+
+  submittedById   String          @map("submitted_by_id")
+  submittedBy     User            @relation("PengajuanSubmittedBy", fields: [submittedById], references: [id])
+  submittedAt     DateTime?       @map("submitted_at")
+
+  hspwItems       Hspw[]
+  validasiRecords ValidasiData[]
+
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  @@index([nomorPengajuan])
+  @@index([wilayahId])
+  @@index([status])
+  @@map("pengajuan_data")
+}
+
+model ValidasiData {
+  id             String          @id @default(uuid())
+  pengajuanId    String?         @map("pengajuan_id")
+  pengajuan      PengajuanData?  @relation(fields: [pengajuanId], references: [id], onDelete: Cascade)
+  
+  hspwId         String?         @map("hspw_id")
+  hspw           Hspw?           @relation(fields: [hspwId], references: [id], onDelete: Cascade)
+
+  verifikatorId  String          @map("verifikator_id")
+  verifikator    User            @relation("ValidasiVerifikator", fields: [verifikatorId], references: [id])
+
+  status         StatusValidasi  @default(MENUNGGU)
+  catatan        String?         @db.Text
+  tindakan       String?
+
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  @@index([pengajuanId])
+  @@index([hspwId])
+  @@index([verifikatorId])
+  @@map("validasi_data")
+}
+
+model RiwayatPerubahan {
+  id           String   @id @default(uuid())
+  entityType   String   @map("entity_type")
+  entityId     String   @map("entity_id")
+  action       String
+  oldValues    Json?    @map("old_values")
+  newValues    Json?    @map("new_values")
+  
+  userId       String?  @map("user_id")
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  ipAddress    String?  @map("ip_address")
+  userAgent    String?  @map("user_agent") @db.Text
+
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@map("riwayat_perubahan")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String           @db.Text
+  type      NotificationType @default(INFO)
+  isRead    Boolean          @default(false) @map("is_read")
+  link      String?
+
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([isRead])
+  @@map("notifications")
+}
+
+model ActivityLog {
+  id          String   @id @default(uuid())
+  userId      String?  @map("user_id")
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action      String
+  module      String
+  description String   @db.Text
+  ipAddress   String?  @map("ip_address")
+  userAgent   String?  @map("user_agent") @db.Text
+
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([module])
+  @@map("activity_logs")
+}
+
